@@ -5,30 +5,48 @@ import { cljParser } from './cljParser';
 import { nreplClient } from './nreplClient';
 
 export function clojureEval(outputChannel: vscode.OutputChannel): void {
-    evaluate(outputChannel, false);
+    evaluate(outputChannel, getCurrentSelection(),  false);
 }
 
 export function clojureEvalAndShowResult(outputChannel: vscode.OutputChannel): void {
-    evaluate(outputChannel, true);
+    evaluate(outputChannel, getCurrentSelection(), true);
 }
 
-function evaluate(outputChannel: vscode.OutputChannel, showResults: boolean): void {
+// export function clojureEvalCurrentForm(outputChannel: vscode.OutputChannel): void {
+//     evaluate(outputChannel, getCurrentFormRange(), true);
+// }
+
+function getCurrentSelection(): vscode.Range {
+    return vscode.window.activeTextEditor.selection;
+}
+
+// find the range that 
+function getCurrentFormRange() {
+    const selection = getCurrentSelection();
+    
+}
+
+function getPositionContest(document: vscode.TextDocument, position: vscode.Position) {
+
+}
+
+function evaluate(outputChannel: vscode.OutputChannel, range: vscode.Range, showResults: boolean): void {
     if (!cljConnection.isConnected()) {
         vscode.window.showWarningMessage('You should connect to nREPL first to evaluate code.');
         return;
     }
 
     const editor = vscode.window.activeTextEditor;
-    const selection = editor.selection;
+
     let text = editor.document.getText();
-    if (!selection.isEmpty) {
+    if (!range.isEmpty) {
         const ns: string = cljParser.getNamespace(text);
-        text = `(ns ${ns})\n${editor.document.getText(selection)}`;
+        text = `(ns ${ns})\n${editor.document.getText(range)}`;
     }
 
     cljConnection.sessionForFilename(editor.document.fileName).then(session => {
         let response;
-        if (!selection.isEmpty && session.type == 'ClojureScript') {
+        if (!range.isEmpty && session.type == 'ClojureScript') {
             // Piggieback's evalFile() ignores the text sent as part of the request
             // and just loads the whole file content from disk. So we use eval()
             // here, which as a drawback will give us a random temporary filename in
@@ -39,14 +57,14 @@ function evaluate(outputChannel: vscode.OutputChannel, showResults: boolean): vo
         }
         response.then(respObjs => {
             if (!!respObjs[0].ex)
-                return handleError(outputChannel, selection, showResults, respObjs[0].session);
+                return handleError(outputChannel, range, showResults, respObjs[0].session);
 
             return handleSuccess(outputChannel, showResults, respObjs);
         })
     });
 }
 
-function handleError(outputChannel: vscode.OutputChannel, selection: vscode.Selection, showResults: boolean, session: string): Promise<void> {
+function handleError(outputChannel: vscode.OutputChannel, range: vscode.Range, showResults: boolean, session: string): Promise<void> {
     if (!showResults)
         vscode.window.showErrorMessage('Compilation error');
 
@@ -57,9 +75,9 @@ function handleError(outputChannel: vscode.OutputChannel, selection: vscode.Sele
             let errLine = stacktraceObj.line !== undefined ? stacktraceObj.line - 1 : 0;
             let errChar = stacktraceObj.column !== undefined ? stacktraceObj.column - 1 : 0;
 
-            if (!selection.isEmpty) {
-                errLine += selection.start.line;
-                errChar += selection.start.character;
+            if (!range.isEmpty) {
+                errLine += range.start.line;
+                errChar += range.start.character;
             }
 
             outputChannel.appendLine(`${stacktraceObj.class} ${stacktraceObj.message}`);
