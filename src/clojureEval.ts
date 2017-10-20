@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { cljConnection } from './cljConnection';
 import { cljParser } from './cljParser';
 import { nreplClient } from './nreplClient';
+import { getCurrentForm } from './clojureContext';
 
 export function clojureEval(outputChannel: vscode.OutputChannel): void {
     evaluate(outputChannel, getCurrentSelection(),  false);
@@ -12,22 +13,12 @@ export function clojureEvalAndShowResult(outputChannel: vscode.OutputChannel): v
     evaluate(outputChannel, getCurrentSelection(), true);
 }
 
-// export function clojureEvalCurrentForm(outputChannel: vscode.OutputChannel): void {
-//     evaluate(outputChannel, getCurrentFormRange(), true);
-// }
+export function clojureEvalCurrentForm(outputChannel: vscode.OutputChannel): void {
+    evaluate(outputChannel, getCurrentFormRange(), true);
+}
 
 function getCurrentSelection(): vscode.Range {
     return vscode.window.activeTextEditor.selection;
-}
-
-// find the range that 
-function getCurrentFormRange() {
-    const selection = getCurrentSelection();
-    
-}
-
-function getPositionContest(document: vscode.TextDocument, position: vscode.Position) {
-
 }
 
 function evaluate(outputChannel: vscode.OutputChannel, range: vscode.Range, showResults: boolean): void {
@@ -108,4 +99,19 @@ function handleSuccess(outputChannel: vscode.OutputChannel, showResults: boolean
         });
     }
     nreplClient.close(respObjs[0].session);
+}
+
+// find the range that contains just the current form
+function getCurrentFormRange(): vscode.Range {
+    const document = vscode.window.activeTextEditor.document;
+    
+    const text = document.getText(new vscode.Range(document.positionAt(0),
+                                  document.lineAt(document.lineCount - 1).rangeIncludingLineBreak.end));
+
+    const startOffset = document.offsetAt(getCurrentSelection().start);
+    const endOffset = document.offsetAt(getCurrentSelection().end);
+
+    const [formStartOffset, formEndOffset] = getCurrentForm(text, startOffset, endOffset);
+
+    return new vscode.Range(document.positionAt(formStartOffset), document.positionAt(formEndOffset));
 }

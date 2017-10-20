@@ -1,6 +1,7 @@
 export enum ClojureContext {
-    STRING = 'string',
+    STRING_LITERAL = 'string',
     COMMENT = 'comment',
+    CHARACTER_LITERAL = 'char',
     OTHER = 'other'
 }
 
@@ -97,13 +98,18 @@ export class ClojureContextResolver {
 
         for (let offset = 0; offset < document.length; offset++) {
             if (document[offset] === '\\') {
+                const startIndex = offset;
                 offset = this.findCharacterLiteralEnd(offset + 1);
+                this.contexts.push({
+                    type: ClojureContext.CHARACTER_LITERAL,
+                    range: [startIndex + 1, offset + 1],
+                });
             }
             else if (document[offset] === '"') {
                 const startIndex = offset;
                 offset = this.findStringEnd(offset + 1);
                 this.contexts.push({
-                    type: ClojureContext.STRING,
+                    type: ClojureContext.STRING_LITERAL,
                     range: [startIndex + 1, offset + 1],
                 });
             }
@@ -144,4 +150,72 @@ export class ClojureContextResolver {
     public getContext(offset: number): ClojureContext {
         return this.findContext(offset, 0, this.contexts.length);
     }
+}
+
+const brackets = new Map([['{', '}'], ['[', ']'], ['(', ')']]);
+
+// return a pair of numbers that mark the beginning and end of the form that immediately encloses the given range
+export function getCurrentForm(text: string, startOffset: number, endOffset: number): [number, number] {
+    const contextResolver = new ClojureContextResolver(text);
+
+    const closeBracketStack: string[] = [];
+
+    let currentOffset: number;  // start at the last character in the selection
+
+    // seek backwards from the end of the selection until the start is reached
+    //   collect open brackets to match against later
+    for (currentOffset = endOffset - 1; currentOffset >= startOffset; currentOffset--) {
+        if (contextResolver.getContext(currentOffset) === ClojureContext.OTHER
+            && text[currentOffset] in brackets.keys)
+        {
+            closeBracketStack.push(brackets[text[currentOffset]]);
+        }
+    }
+
+    // find the first open bracket before the start of the selection
+    for (; currentOffset >= 0; currentOffset--) {
+        if (contextResolver.getContext(currentOffset) === ClojureContext.OTHER
+            && text[currentOffset] in brackets.keys)
+        {
+            closeBracketStack.push(brackets[text[currentOffset]]);
+            break;
+        }
+    }
+
+    // include prefixes like ' and # in the form
+    for (let i = 1; currentOffset - i > 0; i++) {
+        // a string literal, character literal, or comment can't be part of a prefix
+        if (contextResolver.getContext(currentOffset) !== ClojureContext.OTHER) {
+            break;
+        }
+
+        const char = text[currentOffset - i];
+        if (char.trim() === '') { // whitespace ends the search for a prefix
+            break;
+        }
+        if (i === 1 && (char === "'"    // this is a prefix like: '(1 2 3)
+                        || char === '`' 
+                        || char === '^')
+            || char === '#') // this is a prefix like: #person{:name "Han Solo"} or #?@(:clj [3 4] :cljs [5 6])
+        {
+            currentOffset -= i; // include the prefix
+            break;
+        }
+    }
+    
+    const formStartOffset = currentOffset;
+
+    // find matching closing brackets for the brackets previously seen
+    for (currentOffset = endOffset;
+         currentOffset < text.length && closeBracketStack.length > 0;
+         currentOffset++)
+    {
+        if (contextResolver.getContext(currentOffset) === ClojureContext.OTHER
+            && text[currentOffset] === closeBracketStack[closeBracketStack.length - 1])
+        {
+                closeBracketStack.pop();
+        }
+    }
+
+    return [formStartOffset, currentOffset];
 }
